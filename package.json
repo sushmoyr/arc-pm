@@ -8,18 +8,40 @@
   },
   "files": [
     "dist",
-    "src/db/migrations",
-    "src/integrations/templates"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc && node ./scripts/copy-assets.mjs",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=20"
+  },
+  "keywords": [
+    "cli",
+    "project-management",
+    "task-management",
+    "jira",
+    "tui",
+    "ai-agents",
+    "llm",
+    "local-first",
+    "sqlite"
+  ],
+  "author": "Sushmoy Roy",
+  "license": "MIT",
+  "homepage": "https://github.com/sushmoyr/arc-pm#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sushmoyr/arc-pm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sushmoyr/arc-pm/issues"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",
