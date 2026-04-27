@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+.arc/
+*.db
+*.db-journal
+.env
+.env.local
+/.idea/.gitignore
+/.idea/arc-pm.iml
+/.idea/go.imports.xml
+/.idea/material_theme_project_new.xml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/vcs.xml
