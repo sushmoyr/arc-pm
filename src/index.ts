@@ -14,6 +14,7 @@ import { buildImportCommand } from './commands/import.js';
 import { buildExportCommand } from './commands/export.js';
 import { buildLinkCommand } from './commands/link.js';
 import { buildDeleteCommand } from './commands/delete.js';
+import { buildEditCommand } from './commands/edit.js';
 
 async function main() {
   const program = new Command();
@@ -36,6 +37,7 @@ async function main() {
   program.addCommand(buildExportCommand());
   program.addCommand(buildLinkCommand());
   program.addCommand(buildDeleteCommand());
+  program.addCommand(buildEditCommand());
 
   if (process.argv.length <= 2) {
     const { launchTui } = await import('./tui/launch.js');
