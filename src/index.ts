@@ -20,7 +20,7 @@ async function main() {
   program
     .name('arc')
     .description('ARC: Local-first, AI-agent-optimized project management.')
-    .version('0.1.0')
+    .version('0.2.0')
     .showHelpAfterError();
 
   program.addCommand(buildInitCommand());
