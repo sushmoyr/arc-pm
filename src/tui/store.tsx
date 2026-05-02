@@ -83,6 +83,7 @@ export interface State {
   depKind: DependencyKind | null;
   toasts: Toast[];
   undoStack: UndoEntry[];
+  expandedIds: string[];
 }
 
 type Action =
@@ -107,10 +108,68 @@ type Action =
   | { type: 'PUSH_TOAST'; toast: Toast }
   | { type: 'DISMISS_TOAST'; id: number }
   | { type: 'PUSH_UNDO'; entry: UndoEntry }
-  | { type: 'POP_UNDO' };
+  | { type: 'POP_UNDO' }
+  | { type: 'TOGGLE_EXPAND'; taskId: string };
 
 let toastSeq = 0;
 const nextToastId = (): number => ++toastSeq;
+
+export interface HierarchicalTask {
+  task: Task;
+  indent: number;
+  hasChildren: boolean;
+  expanded: boolean;
+}
+
+/** Tasks filtered by current search query (case-insensitive against id/title/status).
+ *  If searching, returns a flat list. If not, returns a hierarchical tree. */
+export function visibleTasks(state: State): HierarchicalTask[] {
+  const q = state.searchQuery.trim().toLowerCase();
+  if (q) {
+    return state.tasks
+      .filter(
+        (t) =>
+          t.id.toLowerCase().includes(q) ||
+          t.title.toLowerCase().includes(q) ||
+          t.status.toLowerCase().includes(q) ||
+          t.type.toLowerCase().includes(q),
+      )
+      .map((t) => ({ task: t, indent: 0, hasChildren: false, expanded: false }));
+  }
+
+  // Hierarchical view
+  const roots = state.tasks.filter((t) => !t.parent_id);
+  const byParent = new Map<string, Task[]>();
+  for (const t of state.tasks) {
+    if (t.parent_id) {
+      const list = byParent.get(t.parent_id) ?? [];
+      list.push(t);
+      byParent.set(t.parent_id, list);
+    }
+  }
+
+  const result: HierarchicalTask[] = [];
+  const walk = (task: Task, indent: number) => {
+    const children = byParent.get(task.id) ?? [];
+    const expanded = state.expandedIds.includes(task.id);
+    result.push({
+      task,
+      indent,
+      hasChildren: children.length > 0,
+      expanded,
+    });
+    if (expanded) {
+      for (const child of children) {
+        walk(child, indent + 1);
+      }
+    }
+  };
+
+  for (const root of roots) {
+    walk(root, 0);
+  }
+  return result;
+}
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -141,17 +200,17 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         tasks: action.tasks,
-        taskCursor: clamp(state.taskCursor, 0, Math.max(0, action.tasks.length - 1)),
+        taskCursor: clamp(state.taskCursor, 0, Math.max(0, visibleTasks({ ...state, tasks: action.tasks }).length - 1)),
       };
     case 'MOVE_TASK_CURSOR':
       return {
         ...state,
-        taskCursor: clamp(state.taskCursor + action.delta, 0, Math.max(0, state.tasks.length - 1)),
+        taskCursor: clamp(state.taskCursor + action.delta, 0, Math.max(0, visibleTasks(state).length - 1)),
       };
     case 'SET_TASK_CURSOR':
       return {
         ...state,
-        taskCursor: clamp(action.cursor, 0, Math.max(0, state.tasks.length - 1)),
+        taskCursor: clamp(action.cursor, 0, Math.max(0, visibleTasks(state).length - 1)),
       };
     case 'TOGGLE_FOCUS':
       return { ...state, focus: state.focus === 'projects' ? 'tasks' : 'projects' };
@@ -201,6 +260,12 @@ function reducer(state: State, action: Action): State {
     }
     case 'POP_UNDO':
       return { ...state, undoStack: state.undoStack.slice(0, -1) };
+    case 'TOGGLE_EXPAND': {
+      const set = new Set(state.expandedIds);
+      if (set.has(action.taskId)) set.delete(action.taskId);
+      else set.add(action.taskId);
+      return { ...state, expandedIds: Array.from(set) };
+    }
     default:
       return state;
   }
@@ -244,6 +309,8 @@ interface StoreContextValue {
     pushToast(kind: Toast['kind'], message: string): void;
     dismissToast(id: number): void;
     undo(): void;
+    deleteTask(): void;
+    toggleExpand(taskId: string): void;
   };
 }
 
@@ -271,6 +338,11 @@ export function StoreProvider({
   );
 
   return <StoreContext.Provider value={{ state, actions }}>{children}</StoreContext.Provider>;
+}
+
+export function currentTask(state: State): Task | null {
+  const visible = visibleTasks(state);
+  return visible[state.taskCursor]?.task ?? null;
 }
 
 function buildActions(
@@ -341,7 +413,7 @@ function buildActions(
       dispatch({ type: 'TOGGLE_FOCUS' });
     },
     cycleStatus() {
-      const task = state.tasks[state.taskCursor];
+      const task = currentTask(state);
       if (!task) return;
       const target = nextStatus(task.status);
       try {
@@ -372,7 +444,7 @@ function buildActions(
       }
     },
     openDetail() {
-      const task = state.tasks[state.taskCursor];
+      const task = currentTask(state);
       if (!task) return;
       const data = refreshDetail(task.id);
       if (data) dispatch({ type: 'SET_MODE', mode: 'detail' });
@@ -424,7 +496,7 @@ function buildActions(
       dispatch({ type: 'SET_SEARCH', query: q });
     },
     toggleTaskSelection() {
-      const task = state.tasks[state.taskCursor];
+      const task = currentTask(state);
       if (!task) return;
       dispatch({ type: 'TOGGLE_SELECT', taskId: task.id });
     },
@@ -453,7 +525,7 @@ function buildActions(
     },
     openEdit() {
       // Edit either the detail's task (if open) or the cursor task in browse.
-      const task = state.detail?.task ?? state.tasks[state.taskCursor];
+      const task = state.detail?.task ?? currentTask(state);
       if (!task) return;
       dispatch({
         type: 'SET_EDIT_DRAFT',
@@ -611,6 +683,24 @@ function buildActions(
         dispatch({ type: 'SET_ERROR', error: errMsg(e) });
       }
     },
+    deleteTask() {
+      const task = state.detail?.task ?? currentTask(state);
+      if (!task) return;
+      try {
+        taskService.delete(task.id);
+        pushToast('success', `deleted ${task.id}`);
+        refreshTasks(state.selectedProjectId);
+        if (state.detail?.task.id === task.id) {
+          dispatch({ type: 'SET_DETAIL', detail: null });
+          dispatch({ type: 'SET_MODE', mode: 'browse' });
+        }
+      } catch (e) {
+        dispatch({ type: 'SET_ERROR', error: errMsg(e) });
+      }
+    },
+    toggleExpand(taskId) {
+      dispatch({ type: 'TOGGLE_EXPAND', taskId });
+    },
   };
 }
 
@@ -644,6 +734,7 @@ function initialState(
     depKind: null,
     toasts: [],
     undoStack: [],
+    expandedIds: [],
   };
 }
 
@@ -653,14 +744,7 @@ export function useStore(): StoreContextValue {
   return ctx;
 }
 
-/** Tasks filtered by current search query (case-insensitive against id/title/status). */
+/** Legacy export for backward compat if needed, but we should use visibleTasks. */
 export function filteredTasks(state: State): Task[] {
-  const q = state.searchQuery.trim().toLowerCase();
-  if (!q) return state.tasks;
-  return state.tasks.filter((t) =>
-    t.id.toLowerCase().includes(q) ||
-    t.title.toLowerCase().includes(q) ||
-    t.status.toLowerCase().includes(q) ||
-    t.type.toLowerCase().includes(q),
-  );
+  return visibleTasks(state).map((ht) => ht.task);
 }

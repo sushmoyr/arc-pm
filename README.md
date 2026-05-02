@@ -75,7 +75,8 @@ Each directory you `arc init` gets a `.arc/project.json` marker that pins it to 
 | `arc next`                            | Highest-priority unblocked task(s)                             |
 | `arc log <id> <msg>`                  | Append a worklog note                                          |
 | `arc link <task> <kind> <target>`     | Add `blocks` / `depends_on`                                    |
-| `arc project list\|show\|set\|delete` | Project metadata                                               |
+| `arc project list|show|set|delete` | Project metadata                                               |
+| `arc delete <id>`                    | Delete a task                                                  |
 | `arc schema [--example]`              | Dump JSON Schema for `arc import` files (or `--example`)       |
 | `arc import <file>`                   | Batch import JSON                                              |
 | `arc export`                          | Export current project to `json` / `md` / `csv`                |
@@ -107,6 +108,8 @@ The TUI is responsive (single-pane below 80 cols, split layout above) and discov
 | `a`       | Quick-add task to the selected project                      |
 | `s`       | Cycle task status (TODO → IN_PROGRESS → REVIEW → DONE → BACKLOG) |
 | `Space`   | Toggle multi-select on a task                               |
+| `v`       | Toggle tree expand/collapse                                 |
+| `x`       | Delete task                                                 |
 | `/`       | Search / filter tasks by id, title, status, or type         |
 | `?`       | Help overlay (always available)                             |
 | `Ctrl+P`  | Command palette (always available)                          |

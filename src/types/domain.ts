@@ -62,6 +62,7 @@ export const Dependency = z.object({
 export type Dependency = z.infer<typeof Dependency>;
 
 export const NewTaskInput = z.object({
+  id: TaskIdSchema.optional(),
   project_id: ProjectIdSchema,
   parent_id: TaskIdSchema.nullable().default(null),
   type: TaskType.default('TASK'),

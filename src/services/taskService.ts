@@ -54,9 +54,21 @@ export class TaskService {
       }
     }
     const tx = this.db.transaction((): Task => {
-      const n = this.projects.mintNextTaskNumber(input.project_id);
-      const id = `${input.project_id}-${n}`;
-      return this.tasks.insert({
+      let id = input.id;
+      if (id) {
+        if (this.tasks.findById(id)) {
+          throw new ValidationError(`task '${id}' already exists`);
+        }
+        if (!id.startsWith(`${input.project_id}-`)) {
+          throw new ValidationError(`task id '${id}' does not match project '${input.project_id}'`);
+        }
+        const num = parseInt(id.split('-')[1]!, 10);
+        this.projects.ensureCounter(input.project_id, num);
+      } else {
+        const n = this.projects.mintNextTaskNumber(input.project_id);
+        id = `${input.project_id}-${n}`;
+      }
+      const task = this.tasks.insert({
         id,
         project_id: input.project_id,
         parent_id: input.parent_id ?? null,
@@ -66,8 +78,20 @@ export class TaskService {
         status: input.status,
         priority: input.priority,
       });
+
+      if (task.parent_id) {
+        this.updateParentStatusRecursive(task.parent_id);
+      }
+
+      return task;
     });
     return tx();
+  }
+
+  delete(id: string): void {
+    const validated = TaskIdSchema.parse(id);
+    const deleted = this.tasks.delete(validated);
+    if (!deleted) throw new NotFoundError(`task '${id}' not found`);
   }
 
   list(filters: TaskFilters = {}): Task[] {
@@ -94,9 +118,48 @@ export class TaskService {
         `invalid status '${status}'. Expected one of: ${TaskStatus.options.join(', ')}`,
       );
     }
-    const updated = this.tasks.updateStatus(validated, parsedStatus.data);
-    if (!updated) throw new NotFoundError(`task '${id}' not found`);
-    return updated;
+    const tx = this.db.transaction(() => {
+      const task = this.get(validated);
+      const updated = this.tasks.updateStatus(validated, parsedStatus.data);
+      if (!updated) throw new NotFoundError(`task '${id}' not found`);
+
+      // Epic Status Automation: if this task has a parent, check if we need to update the parent status
+      if (task.parent_id) {
+        this.updateParentStatusRecursive(task.parent_id);
+      }
+      return updated;
+    });
+    return tx();
+  }
+
+  private updateParentStatusRecursive(parentId: string): void {
+    const parent = this.tasks.findById(parentId);
+    if (!parent) return;
+
+    const children = this.tasks.findByParent(parentId);
+    if (children.length === 0) return;
+
+    const allDone = children.every((c) => c.status === 'DONE');
+    const anyInProgress = children.some((c) => c.status !== 'TODO' && c.status !== 'BACKLOG' && c.status !== 'DONE');
+    const anyDone = children.some((c) => c.status === 'DONE');
+
+    let nextStatus: TaskStatus = parent.status;
+    if (allDone) {
+      nextStatus = 'DONE';
+    } else if (anyInProgress || anyDone) {
+      // If parent is currently BACKLOG/TODO, move to IN_PROGRESS
+      if (parent.status === 'BACKLOG' || parent.status === 'TODO') {
+        nextStatus = 'IN_PROGRESS';
+      }
+    }
+
+    if (nextStatus !== parent.status) {
+      this.tasks.updateStatus(parentId, nextStatus);
+      // Recursively update grand-parents if necessary
+      if (parent.parent_id) {
+        this.updateParentStatusRecursive(parent.parent_id);
+      }
+    }
   }
 
   log(id: string, message: string): Worklog {
@@ -112,9 +175,48 @@ export class TaskService {
 
   addDependency(taskId: string, targetId: string, kind: 'blocks' | 'depends_on'): void {
     if (taskId === targetId) throw new ValidationError('a task cannot depend on itself');
-    this.get(taskId);
-    this.get(targetId);
+    const task = this.get(taskId);
+    const target = this.get(targetId);
+    if (task.project_id !== target.project_id) {
+      throw new ValidationError('cross-project dependencies are not allowed');
+    }
+
+    // Cycle detection
+    // If we add A depends_on B, check if B already (transitively) depends on A
+    // If we add A blocks B (which is B depends_on A), check if A already (transitively) depends on B
+    const wouldBeSource = kind === 'depends_on' ? taskId : targetId;
+    const wouldBeTarget = kind === 'depends_on' ? targetId : taskId;
+
+    if (this.isReachable(wouldBeTarget, wouldBeSource)) {
+      throw new ValidationError(`dependency cycle detected: ${wouldBeTarget} already depends on ${wouldBeSource}`);
+    }
+
     this.deps.add(taskId, targetId, kind);
+  }
+
+  /** Returns true if 'targetId' is reachable from 'sourceId' via 'depends_on' (or reverse 'blocks'). */
+  private isReachable(sourceId: string, targetId: string, visited = new Set<string>()): boolean {
+    if (sourceId === targetId) return true;
+    if (visited.has(sourceId)) return false;
+    visited.add(sourceId);
+
+    // 1. sourceId depends_on X
+    const outgoing = this.deps.listFor(sourceId);
+    for (const d of outgoing) {
+      if (d.kind === 'depends_on') {
+        if (this.isReachable(d.target_id, targetId, visited)) return true;
+      }
+    }
+
+    // 2. X blocks sourceId (means sourceId depends on X)
+    const incoming = this.deps.listIncoming(sourceId);
+    for (const d of incoming) {
+      if (d.kind === 'blocks') {
+        if (this.isReachable(d.task_id, targetId, visited)) return true;
+      }
+    }
+
+    return false;
   }
 
   listDependencies(taskId: string): Dependency[] {

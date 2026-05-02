@@ -16,7 +16,9 @@ export type ActionId =
   | 'help.toggle'
   | 'overlay.close'
   | 'app.quit'
-  | 'undo';
+  | 'undo'
+  | 'task.delete'
+  | 'task.toggleExpand';
 
 export type KeymapMode =
   | 'browse'
@@ -51,6 +53,8 @@ const browseBindings: Binding[] = [
   { keys: ['e'], action: 'entity.openEdit', label: 'e', description: 'edit', showInFooter: true, paletteGlobal: true },
   { keys: ['space'], action: 'task.toggleSelect', label: '␣', description: 'toggle select' },
   { keys: ['/'], action: 'mode.search.open', label: '/', description: 'search', showInFooter: true, paletteGlobal: true },
+  { keys: ['v'], action: 'task.toggleExpand', label: 'v', description: 'expand/collapse' },
+  { keys: ['x'], action: 'task.delete', label: 'x', description: 'delete task' },
   { keys: ['?'], action: 'help.toggle', label: '?', description: 'help', showInFooter: true, paletteGlobal: true },
   { keys: ['ctrl+p'], action: 'mode.palette.open', label: '⌃p', description: 'command palette', paletteGlobal: true },
   { keys: ['u'], action: 'undo', label: 'u', description: 'undo', paletteGlobal: true },

@@ -59,4 +59,13 @@ export class ProjectRepo {
       .get(projectId) as { last_id: number };
     return row.last_id;
   }
+
+  ensureCounter(projectId: string, lastId: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO project_counters (project_id, last_id) VALUES (?, ?)
+         ON CONFLICT(project_id) DO UPDATE SET last_id = MAX(last_id, EXCLUDED.last_id)`,
+      )
+      .run(projectId, lastId);
+  }
 }

@@ -36,6 +36,10 @@ export class TaskRepo {
     return (row as Task) ?? null;
   }
 
+  findByParent(parentId: string): Task[] {
+    return this.db.prepare('SELECT * FROM tasks WHERE parent_id = ?').all(parentId) as Task[];
+  }
+
   findAll(filters: TaskFilters = {}): Task[] {
     const where: string[] = [];
     const params: Record<string, unknown> = {};
@@ -71,7 +75,12 @@ export class TaskRepo {
     return (this.db.prepare(sql).get(params) as Task) ?? null;
   }
 
-  /** Tasks that are ready to work on: status BACKLOG/TODO and no unfulfilled depends_on. */
+  delete(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  /** Tasks that are ready to work on: status BACKLOG/TODO and no unfulfilled dependencies or blocks. */
   findReady(opts: { project_id?: string; limit: number }): Task[] {
     const params: Record<string, unknown> = { limit: opts.limit };
     let projectClause = '';
@@ -82,11 +91,29 @@ export class TaskRepo {
     const sql = `
       SELECT t.* FROM tasks t
       WHERE t.status IN ('BACKLOG','TODO')
+        AND t.type != 'EPIC'
         ${projectClause}
         AND NOT EXISTS (
+          -- Current task depends on something not DONE
           SELECT 1 FROM task_dependencies d
           JOIN tasks dep ON dep.id = d.target_id
           WHERE d.task_id = t.id AND d.kind = 'depends_on' AND dep.status != 'DONE'
+        )
+        AND NOT EXISTS (
+          -- Something not DONE blocks the current task
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks blocker ON blocker.id = d.task_id
+          WHERE d.target_id = t.id AND d.kind = 'blocks' AND blocker.status != 'DONE'
+        )
+        AND NOT EXISTS (
+           -- Parent is already DONE (logically shouldn't happen but protects output)
+           WITH RECURSIVE parents(id, status, parent_id) AS (
+             SELECT id, status, parent_id FROM tasks WHERE id = t.parent_id
+             UNION ALL
+             SELECT tasks.id, tasks.status, tasks.parent_id FROM tasks
+             JOIN parents ON parents.parent_id = tasks.id
+           )
+           SELECT 1 FROM parents WHERE status = 'DONE'
         )
       ORDER BY t.priority ASC, t.created_at ASC
       LIMIT @limit

@@ -14,8 +14,14 @@ export class DependencyRepo {
 
   listFor(taskId: string): Dependency[] {
     return this.db
-      .prepare('SELECT * FROM task_dependencies WHERE task_id = ? OR target_id = ?')
-      .all(taskId, taskId) as Dependency[];
+      .prepare('SELECT * FROM task_dependencies WHERE task_id = ?')
+      .all(taskId) as Dependency[];
+  }
+
+  listIncoming(targetId: string): Dependency[] {
+    return this.db
+      .prepare('SELECT * FROM task_dependencies WHERE target_id = ?')
+      .all(targetId) as Dependency[];
   }
 
   listForProject(projectId: string): Dependency[] {

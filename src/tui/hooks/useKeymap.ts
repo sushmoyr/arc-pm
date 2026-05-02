@@ -1,5 +1,5 @@
 import { useApp, useInput, type Key } from 'ink';
-import { useStore } from '../store.js';
+import { useStore, visibleTasks } from '../store.js';
 import { keymap, type ActionId, type KeymapMode } from '../config/keymap.js';
 
 function canonicalKey(input: string, key: Key): string | null {
@@ -121,6 +121,16 @@ export function runAction(
       return;
     case 'undo':
       actions.undo();
+      return;
+    case 'task.delete':
+      actions.deleteTask();
+      return;
+    case 'task.toggleExpand':
+      if (state.focus === 'tasks') {
+        const visible = visibleTasks(state);
+        const ht = visible[state.taskCursor];
+        if (ht) actions.toggleExpand(ht.task.id);
+      }
       return;
   }
 }
